@@ -3,6 +3,13 @@ name = "regplace"
 version = "0.1.0"
 authors = ["Jesper Axelsson <jesperaxe@gmail.com>"]
 edition = "2018"
+description = "Rename files with regex"
+repository = "https://github.com/JesperAxelsson/regplace.git"
+readme = "README.md"
+keywords = ["regex", "file-rename", "recursive"]
+categories=["command-line-utilities", "filesystem"]
+license = "GPL-3.0+"
+license-file = "LICENSE"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
