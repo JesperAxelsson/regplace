@@ -1,107 +1,124 @@
 extern crate clap;
 
 use clap::{Arg, App};
-// use walkdir::WalkDir;
-// use glob::glob;
 
 use std::io;
-use std::fs::{self, DirEntry};
-use std::path::Path;
+use std::fs::{self, DirEntry, rename};
+//use std::path::Path;
 
 use globset::Glob;
+use globset::GlobMatcher;
 use regex::Regex;
 
 
-fn main() {
+fn main() -> io::Result<()> {
        let matches = App::new("Regex replace")
-                          .version("1.0")
-                          .author("Jesper Axelsson <jesperaxe@gmail.com>")
-                          .about("Rename files with regex")
-                          .arg(Arg::with_name("file pattern")
-                               .help("Sets the input files to use")
-                               .required(true)
-                               .index(1))
+                        .version("1.0")
+                        .author("Jesper Axelsson <jesperaxe@gmail.com>")
+                        .about("Rename files with regex")
                         .arg(Arg::with_name("regex pattern")
-                            .help("Sets rexex capture pattern")
+                            .help("Sets regex capture pattern")
                             .required(true)
-                            .index(2))
+                            .index(1))
                         .arg(Arg::with_name("regex replace pattern")
                             .help("Sets the regex replace pattern")
-                               .required(true)
-                               .index(3))
-                        //   .arg(Arg::with_name("v")
-                        //        .short("v")
-                        //        .multiple(true)
-                            //    .help("Sets the level of verbosity"))
-                          
-                          .get_matches();
+                            .required(true)
+                            .index(2))
+                        .arg(Arg::with_name("path")
+                            .short("p")
+                            .long("path")
+                            .value_name("PATH")
+                            .default_value(".")
+                            .takes_value(true)
+                            .help("Path to files"))
+                        .arg(Arg::with_name("file pattern")
+                            .short("f")
+                            .long("file-pattern")
+                            .value_name("FILE_PATTERN")
+                            .default_value("*")
+                            .takes_value(true)
+                            .help("Sets the input files filter"))                            
+                        .arg(Arg::with_name("dry-run")
+                            .short("d")
+                            .long("dry-run")
+                            .help("Perform a dry tun to see changes"))
+                        .arg(Arg::with_name("overwrite")
+                            .short("o")
+                            .long("overwrite")
+                            .help("Overwrite existing files"))
+                        .arg(Arg::with_name("recursive")
+                            .short("r")
+                            .help("Go into sub directories"))
+                        .arg(Arg::with_name("verbose")
+                            .short("v")
+                            .long("verbose")
+                            .help("Sets the level of verbosity"))
+                        .get_matches();
 
-    // Calling .unwrap() is safe here because "INPUT" is required (if "INPUT" wasn't
-    // required we could have used an 'if let' to conditionally get the value)
-    let file_pattern = matches.value_of("file pattern").unwrap();
     let regex_pattern = matches.value_of("regex pattern").unwrap();
     let regex_replace_pattern = matches.value_of("regex replace pattern").unwrap();
-    println!("Using input file: {}", file_pattern);
-    println!("Using regex: {}", regex_pattern);
-    println!("Using regex replace: {}", regex_replace_pattern);
 
-    // Vary the output based on how many times the user used the "verbose" flag
-    // (i.e. 'myprog -v -v -v' or 'myprog -vvv' vs 'myprog -v'
-        // match matches.occurrences_of("v") {
-        //     0 => println!("No verbose info"),
-        //     1 => println!("Some verbose info"),
-        //     2 => println!("Tons of verbose info"),
-        //     3 | _ => println!("Don't be crazy"),
-        // }
+    let path = matches.value_of("path").unwrap_or(".");
+    let file_pattern = matches.value_of("FILE_PATTERN").unwrap_or_default();
 
+    let dry_run = matches.is_present("dry-run");
+    let verbose = matches.is_present("verbose");
+    let overwrite = matches.is_present("overwrite");
+    let recursive = matches.is_present("recursive");
 
-    // for entry in glob(file_pattern).expect("Failed to read glob pattern") {
-    //     match entry {
-    //         Ok(path) => println!("{:?}", path.display()),
-    //         Err(e) => println!("{:?}", e),
-    //     }
-    // }
+    if verbose {
+        println!("Using input file: {}", file_pattern);
+        println!("Using regex: {}", regex_pattern);
+        println!("Using regex replace: {}", regex_replace_pattern);
+        println!("Using path: {}", path);
+    }
 
-    //  for e in WalkDir::new(".").into_iter().filter_map(|e| e.ok()) {
-    //     println!("{}", e.path().display());
-    // }
-    // // 
-    //     for entry in fs::read_dir(file_pattern).expect("hello") {
-    //         let entry = entry.expect("Failed dir");
-    //         let path = entry.path();
-    //         if path.is_file() {
-    //             println!("{}", path.display());
-    //         } 
-    //     }
-    // } 
+    let glob = Glob::new(file_pattern).expect("Wrong glob file pattern").compile_matcher();
+    let mut files = Vec::new();
 
-
-    let files = get_files(file_pattern);
+    get_files(recursive, &mut files, path, &glob);
 
     for f in files.iter() {
-        println!("{:?}", f);
-    }
-
-    let regex = Regex::new(regex_pattern).expect("Failed to compile file regex");
-    for f in files {
-        let original_name = String::from( f.file_name().to_str().unwrap() );
-        let new_name = regex.replace_all(&original_name, regex_replace_pattern);
-        println!("{:?} --> {}", original_name, new_name);
-    }
-}
-
-
-fn get_files(file_pattern: &str) -> Vec<DirEntry> {
-    let mut files = Vec::new();
-    let glob = Glob::new(file_pattern).expect("Wrong glob file pattern").compile_matcher();
-
-    for entry in fs::read_dir(".").expect("hello") {
-        let entry = entry.expect("Failed dir");
-        let path = entry.path();
-        if path.is_file() && glob.is_match(path) {
-            files.push(entry);
+        if verbose {
+            println!("{:?}", f);
         }
     }
 
-    return  files;
+    let regex = Regex::new(regex_pattern).expect("Failed to compile file regex");
+
+    for f in files {
+        let original_name = String::from(f.file_name().to_str().unwrap());
+        
+        if regex.is_match(&original_name) {
+            let new_name = regex.replace_all(&original_name, regex_replace_pattern);
+            let mut new_path = f.path().clone();
+            new_path.set_file_name(new_name.into_owned());
+            
+            if !new_path.exists() {
+                println!("{} --> {}", f.path().display(), new_path.display());
+            } else {
+                println!("{} --> {} already exists", f.path().display(), new_path.display());
+            }
+
+            if !dry_run && (!new_path.exists() || overwrite) {
+                // Change the names!
+                rename(f.path(), new_path)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+
+fn get_files(recursive: bool, files: &mut Vec<DirEntry>, path: &str, glob: &GlobMatcher) {
+    for entry in fs::read_dir(path).expect("Failed to read directory") {
+        let entry = entry.expect("Failed dir");
+        let path = entry.path();
+        if path.is_file() && glob.is_match(&path) {
+            files.push(entry);
+        } else if path.is_dir() && recursive {
+            get_files(recursive, files, path.to_str().unwrap(), glob);
+        }        
+    }
 }
